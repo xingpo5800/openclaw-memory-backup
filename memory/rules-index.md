@@ -7,12 +7,14 @@
 - execution-priority.md - 执行优先级规则
 - communication.md - 通信规则
 - animation-script.md - 动画脚本规则
+- files-manager.md - 文件管理规则
 
 ## 规则加载优先级
 1. 高优先级：system-rules.md (系统基础规则)
-2. 高优先级：execution-optimization.md
-3. 中优先级：token-saver.md, execution-priority.md
-4. 低优先级：communication.md, animation-script.md
+2. 高优先级：files-manager.md (文件管理规则)
+3. 高优先级：execution-optimization.md
+4. 中优先级：token-saver.md, execution-priority.md
+5. 低优先级：communication.md, animation-script.md
 
 ## 记忆更新规则
 - 写入前先检查是否已有相关记忆
