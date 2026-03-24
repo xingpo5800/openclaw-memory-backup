@@ -21,6 +21,9 @@ A股监控系统 v2.0
   python3 monitor.py chan 002929 --raw       # 显示K线处理详情
   python3 monitor.py zhongshu 605117        # 中枢专项分析
   python3 monitor.py beichi 605117          # 背驰专项分析+三类买卖点+综合评分
+  python3 monitor.py hot                    # 强势股择优（涨幅前10缠论评分+综合排序）
+  python3 monitor.py hot --top=5            # 只对涨幅前5只评分（更快）
+  python3 monitor.py hot --debug            # 显示调试信息
 """
 
 import requests
@@ -129,7 +132,7 @@ def secid_to_market(symbol):
     else:
         return f"0.{symbol}"
 
-def add_stock(symbol, name=None, alert_pct=5.0, alert_direction='both'):
+def add_stock(symbol, name=None, alert_pct=5.0, alert_direction='both', note=None):
     """添加股票到监控列表"""
     portfolio = load_portfolio()
     if symbol not in portfolio:
@@ -138,6 +141,7 @@ def add_stock(symbol, name=None, alert_pct=5.0, alert_direction='both'):
             'alert_pct': alert_pct,
             'alert_direction': alert_direction,  # up, down, both
             'last_price': None,
+            'note': note,  # 追踪备注（如：强势股择优验证，缠论分=0）
             'last_chg': None,
             'added_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
         }
@@ -403,6 +407,29 @@ def main():
             elif a == '--30min': scale = '30'
             elif a == '--60min': scale = '60'
         chan_module.print_integrated(symbol, days, scale)
+
+    elif cmd == 'hot':
+        # 强势股择优
+        try:
+            sys.path.insert(0, str(WORKSPACE))
+            import market_hot as mh
+        except Exception as e:
+            print(f"❌ market_hot 模块加载失败: {e}")
+            return
+
+        top_n = 10
+        debug = False
+        args = sys.argv[2:]
+        i = 0
+        while i < len(args):
+            if args[i].startswith('--top='):
+                top_n = int(args[i].split('=')[1]); i += 1
+            elif args[i] == '--debug':
+                debug = True; i += 1
+            else:
+                i += 1
+
+        mh.analyze_hot_stocks(top_n=top_n, debug=debug)
 
     elif cmd == 'init':
         # 初始化示例组合

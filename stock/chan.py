@@ -1031,18 +1031,13 @@ def calc_integrated_score(symbol, days=120, scale='240'):
     }
     """
     import requests as req
-    
-    # 获取数据
-    url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData'
-    params = {'symbol': symbol, 'scale': scale, 'ma': 'no', 'datalen': str(days)}
-    try:
-        r = req.get(url, params=params, timeout=10)
-        raw = r.json()
-    except:
-        return {'error': '数据获取失败'}
-    
-    klines = [{'date': x['day'], 'open': float(x['open']), 'close': float(x['close']),
-                'high': float(x['high']), 'low': float(x['low']), 'volume': int(x.get('volume',0))} for x in raw]
+
+    # 获取数据 - 使用get_kline（包含ifzq降级）
+    _symbol = symbol.strip()
+    # 处理 sh/sz 前缀
+    if not _symbol.startswith(('sh', 'sz')):
+        _symbol = secid_of(_symbol)
+    klines = get_kline(_symbol, days)
     if len(klines) < 30:
         return {'error': '数据不足'}
     
