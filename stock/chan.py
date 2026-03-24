@@ -176,53 +176,142 @@ def identify_seg(bis):
 # ========== 中枢识别 v2.0 ==========
 def find_zhongshu(bis):
     """
-    识别中枢。
-    缠论规则：任意相邻笔的重叠区域构成中枢（简化版）。
+    识别中枢（滑动窗口版）。
+    缠论规则：三个连续同方向笔的重叠区域构成中枢。
+    
     算法：
-    - 遍历所有相邻笔对，如果重叠则形成中枢
-    - 合并相邻重叠的中枢区间
-    - 中枢方向 = 构成重叠的第一笔的方向
+    - 滑动窗口：每3个连续笔检查，步长=1
+    - 三笔必须同方向
+    - up笔: ZG=max(起始价), ZD=min(结束价)，重叠=ZG>ZD
+    - down笔: ZG=min(起始价), ZD=max(结束价)，重叠=ZG<ZD
+    - 连续有效中枢：只保留首尾（去重）
+    - 扩展中枢：重新计算ZG/ZD覆盖整个笔区间
+    
+    返回：[{index, type, bi_indices, start_bi_idx, end_bi_idx,
+            start_date, end_date, zg, zd, gg, dd, range_width, is_extended}, ...]
     """
-    if not bis or len(bis) < 2:
+    if not bis or len(bis) < 3:
         return []
 
-    # Step 1: 找所有相邻笔对的重叠区间
+    # Step 1: 检测所有有效3笔组合（滑动窗口）
     raw_zs = []
-    for i in range(len(bis) - 1):
-        b0, b1 = bis[i], bis[i+1]
-        zg = max(b0['start_price'], b1['start_price'])
-        zd = min(b0['end_price'], b1['end_price'])
-        overlap = zg < zd
-        if overlap:
+    i = 0
+    while i <= len(bis) - 3:
+        b0, b1, b2 = bis[i], bis[i+1], bis[i+2]
+        if not (b0['type'] == b1['type'] == b2['type']):
+            i += 1; continue
+        direction = b0['type']
+        if direction == 'up':
+            # up笔: start_price=低点, end_price=高点
+            # 中枢: ZG=max(低点)=max(start_prices), ZD=min(高点)=min(end_prices)
+            zg = max(b0['start_price'], b1['start_price'], b2['start_price'])
+            zd = min(b0['end_price'], b1['end_price'], b2['end_price'])
+            gg = min(b0['end_price'], b1['end_price'])
+            dd = max(b1['start_price'], b2['start_price'])
+        else:
+            # down笔: start_price=高点, end_price=低点
+            # 中枢: ZG=max(低点)=max(end_prices), ZD=min(高点)=min(start_prices)
+            zg = max(b0['end_price'], b1['end_price'], b2['end_price'])
+            zd = min(b0['start_price'], b1['start_price'], b2['start_price'])
+            gg = max(b0['end_price'], b1['end_price'])
+            dd = min(b1['start_price'], b2['start_price'])
+        # 重叠有效: up→ZG>ZD(高点更高=重叠), down→ZG>ZD(低点更高=重叠)
+        overlap_valid = zg > zd
+        if overlap_valid:
+            range_w = abs(zg - zd) / zd * 100 if zd != 0 else 0
             raw_zs.append({
-                'start_bi_idx': i, 'end_bi_idx': i + 1,
-                'start_date': b0['start_date'], 'end_date': b1['end_date'],
-                'zg': round(zg, 2), 'zd': round(zd, 2),
-                'range_width': round((zd - zg) / zd * 100, 2),
-                'type': b0['type'],
+                'type': direction,
+                'bi_indices': (i, i+1, i+2),
+                'start_bi_idx': i,
+                'end_bi_idx': i + 2,
+                'start_date': b0['start_date'],
+                'end_date': b2['end_date'],
+                'zg': round(zg, 3),
+                'zd': round(zd, 3),
+                'gg': round(gg, 3),
+                'dd': round(dd, 3),
+                'range_width': round(range_w, 3),
+                'bi_count': 3,
+                'is_extended': False,
             })
+        i += 1
 
     if not raw_zs:
         return []
 
-    # Step 2: 合并相邻重叠的中枢
+    # Step 2: 合并连续重叠的中枢
+    # 策略：只保留每个连续重叠序列的首尾，尾节点重新计算ZG/ZD
     merged = []
-    for z in raw_zs:
-        if not merged:
-            merged.append(z); continue
-        prev = merged[-1]
-        if z['zg'] <= prev['zd']:
-            prev['zg'] = max(prev['zg'], z['zg'])
-            prev['zd'] = min(prev['zd'], z['zd'])
-            prev['end_bi_idx'] = z['end_bi_idx']
-            prev['end_date'] = z['end_date']
-            prev['range_width'] = round((prev['zd'] - prev['zg']) / prev['zd'] * 100, 2)
-            continue
-        merged.append(z)
+    seq_start = 0  # 当前连续序列的起始索引
+
+    for j in range(1, len(raw_zs)):
+        prev_z = raw_zs[j - 1]
+        curr_z = raw_zs[j]
+        # 连续同方向 → 检查区间是否有重叠
+        if curr_z['type'] == prev_z['type']:
+            if prev_z['type'] == 'up':
+                connected = curr_z['zg'] >= prev_z['zd']  # ZG在上方=连接
+            else:
+                connected = curr_z['zg'] <= prev_z['zd']  # ZG在下方=连接
+        else:
+            connected = False
+
+        if not connected:
+            # 序列断开 → 保存前一个序列的尾节点（重新计算ZG/ZD）
+            seq_end = j - 1
+            final_z = _recalc_zhongshu_range(bis, raw_zs, seq_start, seq_end)
+            merged.append(final_z)
+            seq_start = j
+
+    # 保存最后一个序列
+    final_z = _recalc_zhongshu_range(bis, raw_zs, seq_start, len(raw_zs) - 1)
+    merged.append(final_z)
 
     for idx, z in enumerate(merged):
         z['index'] = idx + 1
+
     return merged
+
+
+def _recalc_zhongshu_range(bis, raw_zs, start_idx, end_idx):
+    """根据raw_zs[start_idx:end_idx+1]重新计算中枢ZG/ZD（取并集）"""
+    z = dict(raw_zs[start_idx])  # 复制
+    z['is_extended'] = (end_idx > start_idx)
+
+    # 取所有涉及笔的重叠区间
+    involved_pens = []
+    for k in range(start_idx, end_idx + 1):
+        involved_pens.extend(list(raw_zs[k]['bi_indices']))
+
+    # 去重并排序
+    involved_pens = sorted(set(involved_pens))
+    if len(involved_pens) < 3:
+        return z
+
+    direction = z['type']
+
+    if direction == 'up':
+        # 取前3笔的重叠
+        pens_to_use = involved_pens[:3]
+        zg = max(bis[p]['start_price'] for p in pens_to_use)
+        zd = min(bis[p]['end_price'] for p in pens_to_use)
+    else:
+        # down笔: start_price=高点, end_price=低点
+        pens_to_use = involved_pens[:3]
+        zg = max(bis[p]['end_price'] for p in pens_to_use)   # max of lows
+        zd = min(bis[p]['start_price'] for p in pens_to_use) # min of highs
+
+    z['zg'] = round(zg, 3)
+    z['zd'] = round(zd, 3)
+    z['end_bi_idx'] = involved_pens[-1]
+    z['end_date'] = bis[involved_pens[-1]]['end_date']
+    z['start_bi_idx'] = involved_pens[0]
+    z['start_date'] = bis[involved_pens[0]]['start_date']
+
+    range_w = abs(zg - zd) / zd * 100 if zd != 0 else 0
+    z['range_width'] = round(range_w, 3)
+
+    return z
 
 
 # ========== MACD力度计算（用于背驰）==========
@@ -600,12 +689,21 @@ def calc_comprehensive_score(bis, zhongshu_list, beichi_signals, maidian, resolv
     # 4. 中枢位置（2分）
     if zhongshu_list and resolved_klines:
         latest_z = zhongshu_list[-1]
-        if latest_close > latest_z['zg']:
-            center_score = 2.0; detail['中枢位置'] = f"价格在{latest_z['zg']:.2f}上方，多头 ✅"
-        elif latest_close > latest_z['zd']:
-            center_score = 1.0; detail['中枢位置'] = f"价格在中枢内震荡"
+        if latest_z['type'] == 'up':
+            if latest_close > latest_z['zg']:
+                center_score = 2.0; detail['中枢位置'] = f"价格在ZG{latest_z['zg']:.2f}上方，多头 ✅"
+            elif latest_close > latest_z['zd']:
+                center_score = 1.0; detail['中枢位置'] = f"价格在中枢内震荡"
+            else:
+                center_score = 0.0; detail['中枢位置'] = f"价格在ZD{latest_z['zd']:.2f}下方，空头 ⚠️"
         else:
-            center_score = 0.0; detail['中枢位置'] = f"价格在{latest_z['zd']:.2f}下方，空头 ⚠️"
+            # down类型：zd是更高值（中枢上沿），zg是更低值（中枢下沿）
+            if latest_close > latest_z['zd']:
+                center_score = 2.0; detail['中枢位置'] = f"价格在ZD{latest_z['zd']:.2f}上方，多头 ✅"
+            elif latest_close > latest_z['zg']:
+                center_score = 1.0; detail['中枢位置'] = f"价格在中枢内震荡"
+            else:
+                center_score = 0.0; detail['中枢位置'] = f"价格在ZG{latest_z['zg']:.2f}下方，空头 ⚠️"
     else:
         center_score = 1.0; detail['中枢位置'] = '无中枢信号'
     total += center_score
@@ -705,7 +803,6 @@ def print_score(score_result):
     print(f"  RSI={r.get('rsi',0):.0f}  MACD柱={r.get('macd_hist',0):.2f}  趋势={r.get('trend','?')}")
 
 def print_bis(bis, resolved_klines=None):
-    """打印笔列表（resolved_klines参数已保留但不再使用）"""
     """打印笔列表"""
     if not bis:
         print("  （未识别到笔）")
