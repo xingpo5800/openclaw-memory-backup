@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-WORKSPACE = Path("/Users/kevin/.openclaw/workspace/stock")
+WORKSPACE = Path(__file__).parent
 DATA_DIR = WORKSPACE / "data"
 CONFIG_FILE = WORKSPACE / "portfolio.json"
 SIGNALS_FILE = WORKSPACE / "signals.json"

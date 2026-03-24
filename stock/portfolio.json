@@ -66,5 +66,41 @@
     "last_price": null,
     "last_chg": null,
     "added_at": "2026-03-24 22:38"
+  },
+  "sh600703": {
+    "name": "三安光电",
+    "alert_pct": 8.0,
+    "alert_direction": "both",
+    "last_price": null,
+    "note": null,
+    "last_chg": null,
+    "added_at": "2026-03-25 02:26"
+  },
+  "sz002428": {
+    "name": "云南锗业",
+    "alert_pct": 8.0,
+    "alert_direction": "both",
+    "last_price": null,
+    "note": null,
+    "last_chg": null,
+    "added_at": "2026-03-25 02:26"
+  },
+  "sz002023": {
+    "name": "海特高新",
+    "alert_pct": 8.0,
+    "alert_direction": "both",
+    "last_price": null,
+    "note": null,
+    "last_chg": null,
+    "added_at": "2026-03-25 02:26"
+  },
+  "sh600025": {
+    "name": "光迅科技",
+    "alert_pct": 8.0,
+    "alert_direction": "both",
+    "last_price": null,
+    "note": null,
+    "last_chg": null,
+    "added_at": "2026-03-25 02:26"
   }
 }

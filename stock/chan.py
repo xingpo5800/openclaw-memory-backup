@@ -1072,6 +1072,15 @@ def calc_integrated_score(symbol, days=120, scale='240'):
     
     # ===== 综合打分 =====
     score = 0
+    
+    # 量价评分
+    vol_score, vol_signals = calc_volume_price_score(klines)
+    score += vol_score
+    for s in vol_signals: signals.append(s)
+    
+    # 量价评分说明
+    if vol_score > 0: signals.append(f'量价看多(+{vol_score})')
+    elif vol_score < 0: signals.append(f'量价看空({vol_score})')
     signals = []
     
     # RSI 20分
@@ -1159,3 +1168,91 @@ if __name__ == '__main__':
     days = int(sys.argv[2]) if len(sys.argv) > 2 else 120
     scale = sys.argv[3] if len(sys.argv) > 3 else '240'
     print_integrated(symbol, days, scale)
+
+
+# ========== 量价分析 ==========
+def calc_volume_price_score(klines):
+    """
+    蜡烛图量价评分
+    基于最近5根K线的量价关系
+    返回: (score: -15~+15, signals: [str])
+    """
+    if len(klines) < 5:
+        return 0, []
+    
+    closes = [k['close'] for k in klines]
+    opens = [k['open'] for k in klines]
+    highs = [k['high'] for k in klines]
+    lows = [k['low'] for k in klines]
+    volumes = [k.get('volume', 0) for k in klines]
+    
+    # 平均成交量
+    vol_avg = sum(volumes[-5:]) / 5
+    
+    score = 0
+    signals = []
+    
+    # 最后一根K线
+    last = klines[-1]
+    body = abs(last['close'] - last['open'])
+    upper_shadow = last['high'] - max(last['close'], last['open'])
+    lower_shadow = min(last['close'], last['open']) - last['low']
+    is_bullish = last['close'] > last['open']
+    vol_ratio = last.get('volume', 0) / vol_avg if vol_avg > 0 else 1
+    
+    # 锤子线（下影线长，底部信号）
+    if lower_shadow > body * 2 and body > 0 and lower_shadow > upper_shadow:
+        score += 10
+        signals.append(f'锤子线(下影>{body*2:.1f})')
+    
+    # 射击之星（上影线长，顶部信号）
+    if upper_shadow > body * 2 and body > 0 and upper_shadow > lower_shadow:
+        score -= 10
+        signals.append(f'射击之星(上影>{body*2:.1f})')
+    
+    # 吞没形态（阳包阴/阴包阳）
+    if len(klines) >= 2:
+        prev = klines[-2]
+        prev_body = abs(prev['close'] - prev['open'])
+        body1 = abs(last['close'] - last['open'])
+        if prev_body > 0 and body1 > 0:
+            # 阳包阴（底部买入信号）
+            if prev['close'] < prev['open'] and last['close'] > last['open'] and last['close'] > prev['open'] and last['open'] < prev['close']:
+                score += 8
+                signals.append('阳包阴(买入)')
+            # 阴包阳（顶部卖出信号）
+            elif prev['close'] > prev['open'] and last['close'] < last['open'] and last['close'] < prev['open'] and last['open'] > prev['close']:
+                score -= 8
+                signals.append('阴包阳(卖出)')
+    
+    # 量价配合
+    today_chg = (last['close'] - closes[-2]) / closes[-2] if closes[-2] > 0 else 0
+    if today_chg > 0.02 and vol_ratio > 1.3:  # 价涨量增
+        score += 5
+        signals.append(f'价涨量增({vol_ratio:.1f}x)')
+    elif today_chg > 0.02 and vol_ratio < 0.7:  # 价涨量缩
+        score -= 3
+        signals.append(f'价涨量缩({vol_ratio:.1f}x)')
+    elif today_chg < -0.02 and vol_ratio > 1.3:  # 价跌量增
+        score -= 5
+        signals.append(f'价跌量增({vol_ratio:.1f}x)')
+    elif today_chg < -0.02 and vol_ratio < 0.7:  # 价跌量缩
+        score += 3
+        signals.append(f'价跌量缩({vol_ratio:.1f}x)')
+    
+    # 底部放量
+    if vol_ratio > 2.0 and last['close'] < sum(closes[-5:]) / 5:
+        score += 5
+        signals.append(f'底部放量({vol_ratio:.1f}x)')
+    
+    # 顶部放量
+    if vol_ratio > 2.0 and last['close'] > sum(closes[-5:]) / 5:
+        score -= 5
+        signals.append(f'顶部放量({vol_ratio:.1f}x)')
+    
+    # 限制范围
+    score = max(-15, min(15, score))
+    
+    return score, signals
+
+

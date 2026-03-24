@@ -38,7 +38,7 @@ from pathlib import Path
 chan_module = None
 
 # ========== 配置 ==========
-WORKSPACE = Path("/Users/kevin/.openclaw/workspace/stock")
+WORKSPACE = Path(__file__).parent
 CONFIG_FILE = WORKSPACE / "portfolio.json"
 HISTORY_DIR = WORKSPACE / "history"
 CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)

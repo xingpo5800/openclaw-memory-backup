@@ -7,7 +7,7 @@ import sys, json, re, time
 from datetime import datetime
 from pathlib import Path
 
-WORKSPACE = Path("/Users/kevin/.openclaw/workspace/stock")
+WORKSPACE = Path(__file__).parent
 
 # ========== 数据获取 ==========
 def get_realtime(code):
