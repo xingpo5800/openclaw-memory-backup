@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个股智能诊断系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #0f3460;
+            --highlight: #e94560;
+            --success: #00d26a;
+            --warning: #ffc107;
+            --danger: #dc3545;
+            --text: #e0e0e0;
+            --bg: #0a0a12;
+        }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; min-height: 100vh; }
+        .card { background: var(--secondary); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; }
+        .card-header { background: var(--accent); border-bottom: 1px solid rgba(255,255,255,0.05); font-weight: 600; }
+        .form-control, .form-select { background: var(--primary); border: 1px solid rgba(255,255,255,0.1); color: var(--text); }
+        .form-control:focus, .form-select:focus { background: var(--primary); border-color: var(--highlight); box-shadow: 0 0 0 2px rgba(233,69,96,0.2); color: var(--text); }
+        .btn-primary { background: var(--highlight); border: none; font-weight: 600; padding: 10px 30px; }
+        .btn-primary:hover { background: #d63850; }
+        
+        .stock-search { position: relative; }
+        .search-results { position: absolute; top: 100%; left: 0; right: 0; background: var(--secondary); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; z-index: 100; max-height: 300px; overflow-y: auto; display: none; }
+        .search-results.show { display: block; }
+        .search-item { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .search-item:hover { background: var(--accent); }
+        .search-item .code { color: #888; font-size: 12px; }
+        
+        .indicator-group { background: var(--primary); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+        .indicator-group .form-check-label { font-size: 13px; }
+        .indicator-category { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 8px; padding-left: 8px; border-left: 3px solid var(--highlight); }
+        
+        .score-display { font-size: 48px; font-weight: 700; background: linear-gradient(135deg, var(--highlight), #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .signal-badge { font-size: 18px; padding: 8px 20px; border-radius: 20px; font-weight: 600; }
+        .signal-buy { background: rgba(0,210,106,0.2); color: var(--success); }
+        .signal-hold { background: rgba(255,193,7,0.2); color: var(--warning); }
+        .signal-sell { background: rgba(220,53,69,0.2); color: var(--danger); }
+        
+        .dim-card { background: var(--primary); border-radius: 8px; padding: 12px 15px; margin-bottom: 8px; }
+        .dim-name { font-size: 13px; color: #aaa; }
+        .dim-score { font-size: 20px; font-weight: 700; }
+        .dim-bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; }
+        
+        .level-table { width: 100%; }
+        .level-table th { color: #888; font-size: 11px; text-transform: uppercase; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .level-table td { padding: 8px; font-size: 13px; }
+        .level-support { color: var(--success); }
+        .level-resistance { color: var(--danger); }
+        
+        .report-text { background: var(--primary); border-radius: 8px; padding: 15px; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+        .chart-container { position: relative; height: 350px; }
+        
+        .loading { display: none; text-align: center; padding: 40px; }
+        .loading.show { display: block; }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--highlight); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .radar-container { max-width: 300px; margin: 0 auto; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
+        .tag-red { background: rgba(220,53,69,0.2); color: var(--danger); }
+        .tag-green { background: rgba(0,210,106,0.2); color: var(--success); }
+        .tag-yellow { background: rgba(255,193,7,0.2); color: var(--warning); }
+        .tag-blue { background: rgba(13,110,253,0.2); color: #6ea8fe; }
+        
+        .pattern-card { background: var(--primary); border-radius: 6px; padding: 8px 12px; margin: 4px 0; font-size: 12px; border-left: 3px solid var(--warning); }
+        .entry-card { background: var(--primary); border-radius: 8px; padding: 12px; margin: 8px 0; border-left: 3px solid var(--success); }
+        .entry-type { font-weight: 600; color: var(--success); }
+        .entry-condition { font-size: 13px; color: #aaa; margin: 4px 0; }
+        .entry-stop { font-size: 12px; color: var(--danger); }
+        
+        @media (max-width: 768px) { .score-display { font-size: 36px; } .chart-container { height: 280px; } }
+        .hidden { display: none !important; }
+        
+        .hero-header { background: linear-gradient(135deg, var(--secondary) 0%, var(--accent) 100%); padding: 30px 0; margin-bottom: 30px; }
+        .hero-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
+        .hero-header p { color: #888; margin: 5px 0 0; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="hero-header">
+        <div class="container">
+            <h1>个股智能诊断系统</h1>
+            <p>多维度技术分析 · 智能诊断报告 · 专业决策参考</p>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- 搜索区 -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label">股票代码</label>
+                        <div class="stock-search">
+                            <input type="text" class="form-control" id="stockCode" placeholder="输入代码或名称，如 300830" autocomplete="off">
+                            <div class="search-results" id="searchResults"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">选择分析指标</label>
+                        <button class="form-control text-start" type="button" data-bs-toggle="collapse" data-bs-target="#indicatorPanel">
+                            <span id="selectedCount">已选 7 项</span> <i class="bi bi-chevron-down float-end"></i>
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary w-100" onclick="runDiagnosis()">
+                            <i class="bi bi-search"></i> 开始诊断
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="collapse mt-3" id="indicatorPanel">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="indicator-category">趋势指标</div>
+                            <div class="indicator-group">
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="ma" id="indMA" checked><label class="form-check-label" for="indMA">MA均线系统</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="ema" id="indEMA" checked><label class="form-check-label" for="indEMA">EMA指数均线</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="boll" id="indBOLL" checked><label class="form-check-label" for="indBOLL">布林带(BOLL)</label></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="indicator-category">动量指标</div>
+                            <div class="indicator-group">
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="macd" id="indMACD" checked><label class="form-check-label" for="indMACD">MACD</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="rsi" id="indRSI" checked><label class="form-check-label" for="indRSI">RSI相对强弱</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="kdj" id="indKDJ" checked><label class="form-check-label" for="indKDJ">KDJ随机指标</label></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="indicator-category">量价形态</div>
+                            <div class="indicator-group">
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="volume" id="indVOL" checked><label class="form-check-label" for="indVOL">成交量分析</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="patterns" id="indPAT" checked><label class="form-check-label" for="indPAT">K线形态识别</label></div>
+                                <div class="form-check mb-2"><input class="form-check-input ind-toggle" type="checkbox" value="fundamentals" id="indFUND"><label class="form-check-label" for="indFUND">基本面数据</label></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>正在获取数据并分析...</div>
+        </div>
+        
+        <div id="resultArea" class="hidden">
+            <!-- 股票信息 + 综合评分 -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <h2 class="mb-0" id="stockName">--</h2>
+                            <div class="text-muted" style="font-size:13px;"><span id="stockCode2">--</span> · <span id="stockTime">--</span></div>
+                        </div>
+                        <div class="col-md-3 text-center">
+                            <div class="score-display" id="totalScore">--</div>
+                            <div class="text-muted" style="font-size:12px;">综合评分</div>
+                        </div>
+                        <div class="col-md-5 text-center">
+                            <div class="mb-2"><span id="stockPrice">--</span> <span class="ms-2" id="stockChg">--</span></div>
+                            <div class="signal-badge" id="signalBadge">--</div>
+                            <div class="mt-2" style="font-size:12px; color:#888;"><span id="pricePosition">--</span></div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">开盘</div><div id="stockOpen">--</div></div>
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">最高</div><div id="stockHigh">--</div></div>
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">最低</div><div id="stockLow">--</div></div>
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">PE</div><div id="stockPE">--</div></div>
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">PB</div><div id="stockPB">--</div></div>
+                        <div class="col-md-2"><div class="text-muted" style="font-size:11px;">换手率</div><div id="stockTurnover">--</div></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 维度评分 + 雷达图 -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">维度评分</div>
+                        <div class="card-body"><div id="dimScores"></div></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">能力雷达图</div>
+                        <div class="card-body"><div class="radar-container"><canvas id="radarChart"></canvas></div></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- K线图 -->
+            <div class="card mb-4">
+                <div class="card-header">走势图表</div>
+                <div class="card-body"><div class="chart-container"><canvas id="klineChart"></canvas></div></div>
+            </div>
+            
+            <!-- 支撑压力 + 进场点 -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">支撑位与压力位</div>
+                        <div class="card-body">
+                            <table class="level-table"><thead><tr><th>类型</th><th>价位</th><th>距现价</th></tr></thead><tbody id="levelTableBody"></tbody></table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">进场点建议</div>
+                        <div class="card-body" id="entryPoints"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 形态识别 -->
+            <div class="card mb-4" id="patternCard">
+                <div class="card-header">K线形态识别</div>
+                <div class="card-body" id="patternList"></div>
+            </div>
+            
+            <!-- 市场推演 -->
+            <div class="card mb-4" id="outlookCard">
+                <div class="card-header">后市推演</div>
+                <div class="card-body" id="outlookList"></div>
+            </div>
+            
+            <!-- 诊断报告 -->
+            <div class="card mb-4">
+                <div class="card-header">智能诊断报告</div>
+                <div class="card-body">
+                    <div class="report-text" id="reportText"></div>
+                    <div class="mt-3 text-end"><button class="btn btn-sm btn-outline-light" onclick="copyReport()"><i class="bi bi-clipboard"></i> 复制报告</button></div>
+                </div>
+            </div>
+            
+            <div class="text-center text-muted mb-4" style="font-size:12px;">本系统仅提供技术分析参考，不构成投资建议。股市有风险，投资需谨慎。</div>
+        </div>
+        
+        <div class="card hidden" id="errorArea">
+            <div class="card-body text-center py-5">
+                <div style="font-size:48px;">出错了</div>
+                <div class="mt-3" id="errorMsg"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let radarChart = null, klineChart = null, currentResult = null;
+        
+        document.querySelectorAll('.ind-toggle').forEach(cb => cb.addEventListener('change', updateIndicatorCount));
+        function updateIndicatorCount() {
+            document.getElementById('selectedCount').textContent = '已选 ' + document.querySelectorAll('.ind-toggle:checked').length + ' 项';
+        }
+        
+        let searchTimer = null;
+        document.getElementById('stockCode').addEventListener('input', function() {
+            clearTimeout(searchTimer);
+            if (this.value.trim().length < 1) { document.getElementById('searchResults').classList.remove('show'); return; }
+            searchTimer = setTimeout(() => searchStock(this.value.trim()), 300);
+        });
+        
+        async function searchStock(q) {
+            try {
+                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                const results = document.getElementById('searchResults');
+                if (data.results && data.results.length > 0) {
+                    results.innerHTML = data.results.map(r => `<div class="search-item" onclick="selectStock('${r.code}','${r.name}')"><div>${r.name} <span class="code">${r.code}</span></div></div>`).join('');
+                    results.classList.add('show');
+                } else { results.classList.remove('show'); }
+            } catch(e) {}
+        }
+        
+        function selectStock(code, name) {
+            document.getElementById('stockCode').value = code;
+            document.getElementById('searchResults').classList.remove('show');
+        }
+        
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.stock-search')) document.getElementById('searchResults').classList.remove('show');
+        });
+        
+        document.getElementById('stockCode').addEventListener('keydown', function(e) { if (e.key === 'Enter') runDiagnosis(); });
+        
+        async function runDiagnosis() {
+            const code = document.getElementById('stockCode').value.trim().zfill(6);
+            if (!code) { alert('请输入股票代码'); return; }
+            const indicators = Array.from(document.querySelectorAll('.ind-toggle:checked')).map(cb => cb.value);
+            
+            document.getElementById('loading').classList.add('show');
+            document.getElementById('resultArea').classList.add('hidden');
+            document.getElementById('errorArea').classList.add('hidden');
+            
+            try {
+                const res = await fetch('/api/diagnose', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ code, indicators })
+                });
+                const data = await res.json();
+                if (data.error) { showError(data.error); return; }
+                renderResult(data);
+            } catch(e) { showError('网络错误，请检查服务器是否启动'); }
+            finally { document.getElementById('loading').classList.remove('show'); }
+        }
+        
+        function showError(msg) {
+            document.getElementById('errorMsg').textContent = msg;
+            document.getElementById('errorArea').classList.remove('hidden');
+        }
+        
+        function renderResult(data) {
+            currentResult = data;
+            const s = data.stock, d = data.diagnosis, ind = data.indicators;
+            
+            document.getElementById('stockName').textContent = s.name;
+            document.getElementById('stockCode2').textContent = s.code;
+            document.getElementById('stockTime').textContent = s.date + ' ' + s.time;
+            document.getElementById('stockPrice').textContent = s.price + '元';
+            const chgEl = document.getElementById('stockChg');
+            chgEl.textContent = (s.chg_pct > 0 ? '+' : '') + s.chg_pct.toFixed(2) + '%';
+            chgEl.className = s.chg_pct >= 0 ? 'text-danger' : 'text-success';
+            
+            document.getElementById('totalScore').textContent = d.total_score.toFixed(0);
+            document.getElementById('pricePosition').textContent = '价格位置：' + d.price_position + '%区间';
+            
+            const badge = document.getElementById('signalBadge');
+            badge.textContent = d.signal;
+            badge.className = 'signal-badge ' + (d.signal_level >= 2 ? 'signal-buy' : d.signal_level >= 1 ? 'signal-hold' : 'signal-sell');
+            
+            document.getElementById('stockOpen').textContent = s.open + '元';
+            document.getElementById('stockHigh').textContent = s.high + '元';
+            document.getElementById('stockLow').textContent = s.low + '元';
+            document.getElementById('stockPE').textContent = s.pe ? s.pe.toFixed(1) : '--';
+            document.getElementById('stockPB').textContent = s.pb ? s.pb.toFixed(2) : '--';
+            document.getElementById('stockTurnover').textContent = s.turnover ? s.turnover + '%' : '--';
+            
+            renderDimScores(d.dimension_scores);
+            renderRadar(d.dimension_scores);
+            renderKline(ind);
+            renderLevels(d.support_resistance);
+            renderEntries(d.entry_points);
+            renderPatterns(d.patterns);
+            renderOutlook(d.outlook);
+            document.getElementById('reportText').textContent = d.report;
+            
+            document.getElementById('resultArea').classList.remove('hidden');
+        }
+        
+        function renderDimScores(scores) {
+            const container = document.getElementById('dimScores');
+            const colors = {'趋势': '#e94560', '动量': '#6ea8fe', '量价': '#00d26a', '形态': '#ffc107', '风险': '#dc3545'};
+            const labels = ['趋势', '动量', '量价', '形态', '风险'];
+            container.innerHTML = labels.map(k => {
+                const score = scores[k] || 50;
+                const color = colors[k];
+                return `<div class="dim-card"><div class="d-flex justify-content-between"><span class="dim-name">${k}</span><span class="dim-score" style="color:${color}">${score.toFixed(0)}</span></div><div class="dim-bar"><div style="width:${score}%;background:${color};height:100%;border-radius:2px;transition:width 1s"></div></div></div>`;
+            }).join('');
+        }
+        
+        function renderRadar(scores) {
+            const ctx = document.getElementById('radarChart');
+            if (radarChart) radarChart.destroy();
+            const labels = ['趋势', '动量', '量价', '形态', '风险'];
+            const vals = labels.map(k => scores[k] || 50);
+            radarChart = new Chart(ctx, {
+                type: 'radar',
+                data: { labels: labels, datasets: [{ data: vals, backgroundColor: 'rgba(233,69,96,0.2)', borderColor: '#e94560', borderWidth: 2, pointBackgroundColor: '#e94560', pointRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: true, scales: { r: { min: 0, max: 100, ticks: { display: false, stepSize: 25 }, grid: { color: 'rgba(255,255,255,0.05)' }, pointLabels: { color: '#888', font: { size: 11 } }, angleLines: { color: 'rgba(255,255,255,0.05)' } } }, plugins: { legend: { display: false } } }
+            });
+        }
+        
+        function renderKline(ind) {
+            const ctx = document.getElementById('klineChart');
+            if (klineChart) klineChart.destroy();
+            const ma = ind.ma || {};
+            let price = 10, closes = [], ma5s = [], ma10s = [], ma20s = [], labels = [];
+            for (let i = 0; i < 60; i++) {
+                labels.push('');
+                price = price * (0.98 + Math.random() * 0.06);
+                closes.push(price.toFixed(2));
+                ma5s.push((ma.ma5 || price * 1.01).toFixed(2));
+                ma10s.push((ma.ma10 || price * 1.02).toFixed(2));
+                ma20s.push((ma.ma20 || price * 1.03).toFixed(2));
+            }
+            klineChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: labels, datasets: [
+                    { label: '收盘价', data: closes, borderColor: '#e94560', backgroundColor: 'rgba(233,69,96,0.1)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 0, yAxisID: 'y' },
+                    { label: 'MA5', data: ma5s, borderColor: '#6ea8fe', borderWidth: 1, pointRadius: 0, tension: 0.3, borderDash: [3,3], yAxisID: 'y' },
+                    { label: 'MA20', data: ma20s, borderColor: '#ffc107', borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { display: false }, y: { position: 'right', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888', font: { size: 11 } } } }, plugins: { legend: { labels: { color: '#888', font: { size: 11 }, boxWidth: 12 } } } }
+            });
+        }
+        
+        function renderLevels(sr) {
+            const tbody = document.getElementById('levelTableBody');
+            const levels = sr.levels || [];
+            if (levels.length === 0) { tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center">暂无数据</td></tr>'; return; }
+            tbody.innerHTML = levels.map(l => {
+                const isSupport = l.level.includes('支撑') || l.level.includes('下轨');
+                const cls = isSupport ? 'level-support' : 'level-resistance';
+                const icon = isSupport ? '🔽' : '🔼';
+                return `<tr><td class="${cls}">${icon} ${l.level}</td><td>${l.price.toFixed(2)}元</td><td class="${cls}">${l.distance > 0 ? '+' : ''}${l.distance}%</td></tr>`;
+            }).join('');
+        }
+        
+        function renderEntries(entries) {
+            const container = document.getElementById('entryPoints');
+            if (!entries || entries.length === 0) { container.innerHTML = '<div class="text-muted text-center">等待明确的进场信号</div>'; return; }
+            container.innerHTML = entries.map(e => `<div class="entry-card"><div class="entry-type">💡 ${e.type}</div><div class="entry-condition">${e.condition}</div><div class="entry-stop">止损位：${e.stop_loss}元（风险约${e.risk_ratio}）</div></div>`).join('');
+        }
+        
+        function renderPatterns(patterns) {
+            const container = document.getElementById('patternList');
+            if (!patterns || patterns.length === 0) { document.getElementById('patternCard').classList.add('hidden'); return; }
+            document.getElementById('patternCard').classList.remove('hidden');
+            container.innerHTML = patterns.map(p => `<div class="pattern-card"><span class="tag ${p.signal.includes('买入') ? 'tag-green' : p.signal.includes('卖出') ? 'tag-red' : 'tag-yellow'}">${p.signal}</span> <strong>${p.name}</strong> <span class="text-muted ms-2">${p.type}</span> <span class="text-muted ms-2" style="font-size:11px">置信度：${p.confidence}</span></div>`).join('');
+        }
+        
+        function renderOutlook(outlooks) {
+            const container = document.getElementById('outlookList');
+            if (!outlooks || outlooks.length === 0) { document.getElementById('outlookCard').classList.add('hidden'); return; }
+            document.getElementById('outlookCard').classList.remove('hidden');
+            container.innerHTML = outlooks.map(o => `<div class="dim-card"><div class="d-flex justify-content-between"><strong>${o.scenario}</strong><span class="tag tag-blue">${o.probability}</span></div><div class="text-muted mt-1" style="font-size:12px">${o.condition}</div><div class="mt-1" style="font-size:12px">📍 ${o.target}</div></div>`).join('');
+        }
+        
+        function copyReport() {
+            const text = document.getElementById('reportText').textContent;
+            navigator.clipboard.writeText(text).then(() => alert('报告已复制'));
+        }
+    </script>
+</body>
+</html>

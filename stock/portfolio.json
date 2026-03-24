@@ -1,0 +1,46 @@
+{
+  "002202": {
+    "name": "金风科技",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "002487": {
+    "name": "大金重工",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "605117": {
+    "name": "德业股份",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "600367": {
+    "name": "红星发展",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "002929": {
+    "name": "润建股份",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "300830": {
+    "name": "金现代",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "added_at": "2026-03-23 00:20"
+  },
+  "002506": {
+    "name": "协鑫集成",
+    "alert_pct": 5.0,
+    "alert_direction": "both",
+    "last_price": null,
+    "last_chg": null,
+    "added_at": "2026-03-24 09:53"
+  }
+}
