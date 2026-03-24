@@ -379,6 +379,31 @@ def main():
                     score = chan_module.calc_comprehensive_score(bis, zhongshu_list, beichi_signals, maidian, klines)
                     chan_module.print_score(score)
 
+    elif cmd == 'integrate':
+        # 综合分析：缠论 + RSI + MACD
+        if chan_module is None:
+            sys.path.insert(0, str(WORKSPACE))
+            try:
+                import chan as chan_module
+            except Exception as e:
+                print(f"❌ 缠论模块加载失败: {e}"); return
+
+        symbol = sys.argv[2].strip() if len(sys.argv) > 2 else ''
+        if not symbol:
+            portfolio = load_portfolio()
+            if portfolio:
+                print(f"📋 综合分析 - 全部持仓股票:")
+                for sym, info in portfolio.items():
+                    chan_module.print_integrated(sym, 120, '240')
+            return
+
+        days = 120; scale = '240'
+        for a in sys.argv[3:]:
+            if a.startswith('--days='): days = int(a.split('=')[1])
+            elif a == '--30min': scale = '30'
+            elif a == '--60min': scale = '60'
+        chan_module.print_integrated(symbol, days, scale)
+
     elif cmd == 'init':
         # 初始化示例组合
         demo_stocks = [

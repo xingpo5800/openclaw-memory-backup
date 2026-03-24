@@ -15,14 +15,61 @@
 
 import requests
 import sys
+import json
 from datetime import datetime
 
-# ========== 东方财富API ==========
+# ========== 新浪财经API（兼容日K/分钟K）==========
 def get_kline(secid, days=120):
-    """获取日K线（前复权）- 使用腾讯财经API"""
+    """获取日K线 - 使用新浪财经API，兼容股票和指数"""
+    # secid格式: 1.000001(上证) 或 0.000001(深证)
+    # 特殊处理：指数用sh/sz前缀，股票用sz/sh前缀
+    code = secid.split('.')[1] if '.' in secid else secid
+    
+    # 上证指数特殊处理
+    if code in ('000001', '000300', '000016', '000688') or secid.startswith('1.'):
+        symbol = f"sh{code}"
+    else:
+        symbol = f"sz{code}" if not code.startswith(('sh', 'sz')) else f"{code}"
+    
+    # 新浪日K API: scale=240 表示日线
+    url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData'
+    params = {
+        'symbol': symbol,
+        'scale': '240',
+        'ma': 'no',
+        'datalen': min(days, 5000)
+    }
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        raw = r.json()
+        if not raw or not isinstance(raw, list):
+            # 降级：尝试腾讯ifzq API
+            return _get_kline_ifzq(secid, days)
+        result = []
+        for bar in raw:
+            try:
+                result.append({
+                    'date': bar['day'],
+                    'open': float(bar['open']),
+                    'close': float(bar['close']),
+                    'high': float(bar['high']),
+                    'low': float(bar['low']),
+                    'volume': int(float(bar.get('volume', 0)))
+                })
+            except (ValueError, KeyError):
+                continue
+        # 按日期升序排序
+        result.sort(key=lambda x: x['date'])
+        return result
+    except Exception as e:
+        print(f"  Sina API失败: {e}，尝试降级...")
+        return _get_kline_ifzq(secid, days)
+
+def _get_kline_ifzq(secid, days=120):
+    """腾讯ifzq降级接口"""
     market = 'sh' if secid.startswith('1.') else 'sz'
-    code = secid.split('.')[1]
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+    code = secid.split('.')[1] if '.' in secid else secid
+    url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
     params = {
         '_var': 'kline_dayhfq',
         'param': f"{market}{code},day,2020-01-01,2050-12-31,{days},qfq"
@@ -30,12 +77,14 @@ def get_kline(secid, days=120):
     try:
         r = requests.get(url, params=params, timeout=10)
         text = r.text
-        import json as _json
+        if '=' not in text:
+            return []
         json_str = text[text.index('=') + 1:]
-        data = _json.loads(json_str)
-        raw = data.get('data', {}).get(f"{market}{code}", {}).get('qfqday', [])
-        if not raw:
-            raw = data.get('data', {}).get(f"{market}{code}", {}).get('day', [])
+        data = json.loads(json_str)
+        d = data.get('data', {})
+        if isinstance(d, list):
+            return []
+        raw = d.get(f"{market}{code}", {}).get('qfqday', d.get(f"{market}{code}", {}).get('day', []))
         result = []
         for line in raw:
             if len(line) >= 6:
@@ -46,17 +95,19 @@ def get_kline(secid, days=120):
                     })
                 except (ValueError, IndexError):
                     continue
+        result.sort(key=lambda x: x['date'])
         return result
-    except Exception as e:
-        print(f"❌ 数据获取失败: {e}")
+    except Exception:
         return []
 
 def secid_of(symbol):
-    """股票代码 → 东方财富secid"""
+    """股票代码 → secid格式"""
     s = symbol.strip()
-    if s.startswith(('6', '5', '9', '7')):
-        return f"1.{s}"
-    return f"0.{s}"
+    if s.startswith(('6', '5', '9', '7', '0', '3')) and len(s) == 6:
+        if s.startswith(('6', '5', '9', '7')):
+            return f"1.{s}"
+        return f"0.{s}"
+    return symbol
 
 
 # ========== 缠论核心算法 v1.0（笔段）==========
@@ -966,3 +1017,150 @@ if __name__ == '__main__':
         print(f"\n{'='*80}")
         print(f"✅ 缠论分析完成 | 笔数:{len(result['bis'])} | 线段:{len(result['segs'])} | "
               f"中枢:{len(result['zhongshu'])} | 背驰:{len(result['beichi'])}")
+
+
+# ========== 缠论 + RSI + MACD 综合打分 ==========
+def calc_integrated_score(symbol, days=120, scale='240'):
+    """
+    缠论 + RSI + MACD 综合评分
+    返回: {
+        'rsi': float, 'macd': float, 'dif': float,
+        'chan_signals': [...], 'score': 0-100,
+        'recommendation': str,
+        'entry_price': float, 'stop_loss': float
+    }
+    """
+    import requests as req
+    
+    # 获取数据
+    url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData'
+    params = {'symbol': symbol, 'scale': scale, 'ma': 'no', 'datalen': str(days)}
+    try:
+        r = req.get(url, params=params, timeout=10)
+        raw = r.json()
+    except:
+        return {'error': '数据获取失败'}
+    
+    klines = [{'date': x['day'], 'open': float(x['open']), 'close': float(x['close']),
+                'high': float(x['high']), 'low': float(x['low']), 'volume': int(x.get('volume',0))} for x in raw]
+    if len(klines) < 30:
+        return {'error': '数据不足'}
+    
+    closes = [k['close'] for k in klines]
+    
+    # RSI
+    deltas = [closes[i]-closes[i-1] for i in range(1,len(closes))]
+    gains = [d for d in deltas[-14:] if d>0]
+    losses = [-d for d in deltas[-14:] if d<0]
+    ag = sum(gains)/14 if gains else 0
+    al = sum(losses)/14 if losses else 0
+    rsi = 100-(100/(1+ag/al)) if al else 100
+    
+    # MACD
+    e12 = [closes[0]]; e26 = [closes[0]]
+    for c in closes[1:]:
+        e12.append(c*2/13+e12[-1]*11/13)
+        e26.append(c*2/27+e26[-1]*25/27)
+    dif = [e12[i]-e26[i] for i in range(len(closes))]
+    dea = [dif[0]]
+    for d in dif[1:]:
+        dea.append(d*2/10+dea[-1]*8/10)
+    macd = [2*(dif[i]-dea[i]) for i in range(len(closes))]
+    
+    # 缠论
+    resolved = resolve_inclusion(klines)
+    bis = identify_bi(resolved)
+    zs = find_zhongshu(bis)
+    macd_data = calc_macd_for_bis(resolved, bis)
+    beichi = find_beichi(bis, zs, macd_data, resolved)
+    maidian = find_maidian(bis, zs, beichi, resolved)
+    
+    # ===== 综合打分 =====
+    score = 0
+    signals = []
+    
+    # RSI 20分
+    if rsi < 30: score += 20; signals.append(f'RSI超卖({rsi:.0f})')
+    elif rsi < 40: score += 12; signals.append(f'RSI偏低({rsi:.0f})')
+    elif rsi > 70: score -= 10; signals.append(f'RSI超买({rsi:.0f})')
+    elif rsi > 60: score -= 5; signals.append(f'RSI偏高({rsi:.0f})')
+    else: score += 5; signals.append(f'RSI中性({rsi:.0f})')
+    
+    # MACD 20分
+    if macd[-1] > 0 and macd[-1] > macd[-2]: score += 20; signals.append('MACD多头')
+    elif macd[-1] > 0: score += 10; signals.append('MACD偏多')
+    elif macd[-1] < 0 and macd[-1] < macd[-2]: score -= 15; signals.append('MACD空头发散')
+    elif macd[-1] < 0: score -= 5; signals.append('MACD空头收敛')
+    else: score += 0; signals.append('MACD整理')
+    
+    # 缠论买点 30分
+    buy_score = 0
+    for m in maidian['buy']:
+        if m['name'] == '第一类买点(1买)': buy_score = max(buy_score, 30)
+        elif m['name'] == '第二类买点(2买)': buy_score = max(buy_score, 20)
+        elif m['name'] == '第三类买点(3买)': buy_score = max(buy_score, 15)
+    score += buy_score
+    if buy_score > 0: signals.append(f'缠论{["无","一买","二买","三买"][buy_score//10]}')
+    
+    # 缠论卖点 -20分
+    sell_score = 0
+    for m in maidian['sell']:
+        if m['name'] == '第一类卖点(1卖)': sell_score = max(sell_score, -20)
+        elif m['name'] == '第二类卖点(2卖)': sell_score = max(sell_score, -15)
+        elif m['name'] == '第三类卖点(3卖)': sell_score = max(sell_score, -10)
+    score += sell_score
+    
+    # 背驰信号 ±10分
+    for b in beichi:
+        if '底' in b['type'] and b['bei_ratio'] > 1.3: score += 10; signals.append(f'底背驰({b["bei_ratio"]}x)'); break
+        elif '顶' in b['type'] and b['bei_ratio'] > 1.3: score -= 10; signals.append(f'顶背驰({b["bei_ratio"]}x)'); break
+    
+    score = max(0, min(100, score))
+    
+    # 建议和关键价
+    latest_close = closes[-1]
+    if score >= 60: rec = '买入信号'; entry = latest_close; stop = latest_close * 0.95
+    elif score >= 45: rec = '谨慎买入'; entry = latest_close; stop = latest_close * 0.93
+    elif score >= 35: rec = '观望'; entry = None; stop = None
+    else: rec = '不介入'; entry = None; stop = None
+    
+    return {
+        'symbol': symbol, 'date': klines[-1]['date'],
+        'close': latest_close,
+        'rsi': round(rsi, 1), 'dif': round(dif[-1], 4), 'macd': round(macd[-1], 4),
+        'chan': {'bis': len(bis), 'zs': len(zs), 'beichi': len(beichi), 'buy': len(maidian['buy']), 'sell': len(maidian['sell'])},
+        'signals': signals, 'score': score,
+        'recommendation': rec, 'entry_price': entry, 'stop_loss': stop
+    }
+
+
+def print_integrated(symbol, days=120, scale='240'):
+    """综合分析打印"""
+    result = calc_integrated_score(symbol, days, scale)
+    if 'error' in result:
+        print(f"❌ {result['error']}"); return
+    
+    print(f"\n{'='*50}")
+    print(f"  综合评分系统 | {symbol} | {result['date']}")
+    print(f"{'='*50}")
+    print(f"  现价: {result['close']:.2f}")
+    print(f"  RSI: {result['rsi']}  |  DIF: {result['dif']}  |  MACD: {result['macd']}")
+    print(f"  缠论: {result['chan']['bis']}笔/{result['chan']['zs']}中枢/{result['chan']['beichi']}背驰 | 买{result['chan']['buy']}卖{result['chan']['sell']}")
+    print()
+    print(f"  信号:")
+    for s in result['signals']:
+        print(f"    ● {s}")
+    print()
+    print(f"  综合评分: {result['score']}/100  →  {result['recommendation']}")
+    if result['entry_price']:
+        print(f"  建议入场: {result['entry_price']:.2f}  |  止损: {result['stop_loss']:.2f}")
+    print(f"{'='*50}\n")
+
+
+# 命令行入口
+if __name__ == '__main__':
+    import sys
+    symbol = sys.argv[1] if len(sys.argv) > 1 else 'sh000001'
+    days = int(sys.argv[2]) if len(sys.argv) > 2 else 120
+    scale = sys.argv[3] if len(sys.argv) > 3 else '240'
+    print_integrated(symbol, days, scale)
